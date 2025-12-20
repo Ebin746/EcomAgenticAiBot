@@ -10,7 +10,7 @@ const shopify = axios.create({
 
 export async function fetchProducts(query) {
   const res = await shopify.get("/products.json", {
-    params: { limit: 5 }
+    params: { limit: 6 }
   });
 
   return res.data.products.map(p => ({
