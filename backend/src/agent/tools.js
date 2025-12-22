@@ -20,11 +20,7 @@ const client = new GraphQLClient(
   }
 );
 
-/* ======================================================
-   TOOL 1: LIST / SEARCH PRODUCTS
-   - "show me products"
-   - "show me snowboards under 2000"
-====================================================== */
+
 
 export const listProductsTool = new DynamicStructuredTool({
   name: "list_products",
@@ -42,28 +38,29 @@ export const listProductsTool = new DynamicStructuredTool({
 
     const gql = `
       query {
-        products(first: 10${query ? `, query: "${query}"` : ""}) {
-          edges {
-            node {
-              title
-              variants(first: 1) {
-                edges {
-                  node {
-                    id
-                    price
-                  }
-                }
-              }
-              images(first: 1) {
-                edges {
-                  node {
-                    src
-                  }
-                }
-              }
-            }
+  products(first: 10) {
+  edges {
+    node {
+      title
+      variants(first: 1) {
+        edges {
+          node {
+            id
+            price
           }
         }
+      }
+      images(first: 1) {
+        edges {
+          node {
+            src
+          }
+        }
+      }
+    }
+  }
+}
+
       }
     `;
 
@@ -90,11 +87,6 @@ export const listProductsTool = new DynamicStructuredTool({
   },
 });
 
-/* ======================================================
-   TOOL 2: GET PRODUCT BY INDEX
-   - "second one"
-   - "show details of product 3"
-====================================================== */
 
 export const getProductByIndexTool = new DynamicStructuredTool({
   name: "get_product_by_index",
@@ -122,11 +114,6 @@ export const getProductByIndexTool = new DynamicStructuredTool({
   },
 });
 
-/* ======================================================
-   TOOL 3: CREATE DRAFT ORDER
-   - "order the second one"
-   - "buy 2 quantities"
-====================================================== */
 
 export const createDraftOrderTool = new DynamicStructuredTool({
   name: "create_draft_order",
