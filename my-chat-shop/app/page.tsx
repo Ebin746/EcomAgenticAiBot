@@ -138,7 +138,7 @@ export default function ChatCommerce() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
+    <div className="flex flex-col h-screen  from-slate-950 via-slate-900 to-slate-950 text-slate-100">
       {/* HEADER */}
       <header className="border-b border-slate-800 bg-slate-900">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
@@ -187,7 +187,7 @@ export default function ChatCommerce() {
           <button
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}
-            className="bg-gradient-to-r from-indigo-600 to-purple-600 p-3 rounded-xl disabled:opacity-50"
+            className=" from-indigo-600 to-purple-600 p-3 rounded-xl disabled:opacity-50"
           >
             <Send className="w-5 h-5 text-white" />
           </button>
@@ -203,7 +203,7 @@ function MessageBubble({ message }: { message: Message }) {
   if (message.type === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-3 rounded-2xl rounded-tr-sm">
+        <div className="max-w-[80%]  from-indigo-600 to-purple-600 text-white p-3 rounded-2xl rounded-tr-sm">
           {message.content}
         </div>
       </div>
@@ -247,7 +247,7 @@ function ProductCard({
   return (
     <div
       className={`bg-slate-800 border border-slate-700 rounded-xl shadow-lg ${
-        expanded ? 'w-full' : 'w-64 flex-shrink-0'
+        expanded ? 'w-full' : 'w-64 '
       }`}
     >
       <div className="h-40 bg-slate-900 flex items-center justify-center">
