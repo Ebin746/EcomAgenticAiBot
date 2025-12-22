@@ -1,24 +1,12 @@
-// Simple in-memory store
-const sessions = {};
+// src/memory/sessionMemory.js
 
-// Get or create session memory
-export function getSession(sessionId) {
-  if (!sessions[sessionId]) {
-    sessions[sessionId] = {
-      lastProducts: [],
-      selectedProduct: null,
-    };
+import { InMemoryChatMessageHistory } from "@langchain/core/chat_history";
+
+const histories = new Map();
+
+export function getMessageHistory(sessionId) {
+  if (!histories.has(sessionId)) {
+    histories.set(sessionId, new InMemoryChatMessageHistory());
   }
-  return sessions[sessionId];
-}
-
-// Update helpers
-export function setLastProducts(sessionId, products) {
-  const session = getSession(sessionId);
-  session.lastProducts = products;
-}
-
-export function setSelectedProduct(sessionId, product) {
-  const session = getSession(sessionId);
-  session.selectedProduct = product;
+  return histories.get(sessionId);
 }

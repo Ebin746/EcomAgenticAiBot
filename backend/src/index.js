@@ -1,25 +1,39 @@
-import "./loadEnv.js"
-
 import express from "express";
-import crypto from "crypto";
-import { runAgent } from "./agent/agent.js";
+import "./loadEnv.js";
+import { getAgent } from "./agent/agent.js";
+import { sessionContext } from "./memory/sessionContext.js";
 
 const app = express();
 app.use(express.json());
 
-// Simple session generator
-app.use((req, res, next) => {
-  req.sessionId = "TEST_SESSION";
-  next();
-});
-
+const agent = getAgent();
 
 app.post("/chat", async (req, res) => {
-  const { message } = req.body;
-  const reply = await runAgent(message, req.sessionId);
-  res.json({ reply });
+  const { message, sessionId } = req.body;
+
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId required" });
+  }
+
+  sessionContext.run({ sessionId }, async () => {
+    try {
+      const result = await agent.invoke({
+        messages: [{ role: "user", content: message }],
+      });
+
+      const lastMessage =
+        result.messages?.[result.messages.length - 1];
+
+      res.json({
+        reply: lastMessage?.content ?? "No response",
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: err.message });
+    }
+  });
 });
 
 app.listen(3000, () => {
-  console.log("Agent with memory running on http://localhost:3000");
+  console.log("Server running on port 3000");
 });
