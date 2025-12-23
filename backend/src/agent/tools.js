@@ -5,6 +5,13 @@ import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import { GraphQLClient } from "graphql-request";
 import { getProductContext, setLastProductList } from "../memory/productContext.js";
+import { getCurrentSessionId } from "../memory/sessionContext.js";
+
+import {
+  setPendingProduct,
+  getTransactionState,
+  clearPendingProduct,
+} from "../memory/transactionMemory.js";
 
 /* ======================================================
    SHOPIFY GRAPHQL CLIENT
@@ -94,23 +101,34 @@ export const getProductByIndexTool = new DynamicStructuredTool({
     "Retrieve a product from the previously listed products using its index.",
 
   schema: z.object({
-    index: z.number().int().positive(),
+    index: z.number().int(),
   }),
 
   func: async ({ index }) => {
     console.log("GET_PRODUCT using server-side session context");
 
     const context = getProductContext();
-    const product = context.lastProductList[index - 1];
+
+    // 🔒 Normalize index (LLM may send 0)
+    const safeIndex = Math.max(1, index);
+
+    const product = context.lastProductList[safeIndex - 1];
 
     if (!product) {
       return JSON.stringify({
         error:
-          "Product index not found. Please ask to list the products again.",
+          "Product not found. Please ask to list products again.",
       });
     }
 
-    return JSON.stringify(product);
+    // 🧠 Save pending product for continuation ("order this")
+    const sessionId = getCurrentSessionId();
+    setPendingProduct(sessionId, product);
+
+    return JSON.stringify({
+      message: "Here is the selected product",
+      product,
+    });
   },
 });
 
@@ -153,5 +171,48 @@ export const createDraftOrderTool = new DynamicStructuredTool({
     const data = await client.request(gql);
 
     return JSON.stringify(data.draftOrderCreate.draftOrder);
+  },
+});
+
+
+
+export const confirmOrderTool = new DynamicStructuredTool({
+  name: "confirm_order",
+  description:
+    "Confirm and place an order for the previously selected product.",
+
+  schema: z.object({
+    quantity: z.number().int().positive().default(1),
+  }),
+
+  func: async ({ quantity }) => {
+    console.log("CONFIRM_ORDER using server-side session context");
+
+    const sessionId = getCurrentSessionId();
+    const state = getTransactionState(sessionId);
+
+    if (!state.pendingProduct) {
+      return JSON.stringify({
+        error:
+          "No product selected yet. Please choose a product first.",
+      });
+    }
+
+    const product = state.pendingProduct;
+
+    // Create draft order
+    const result = await createDraftOrderTool.func({
+      items: [
+        {
+          id: product.variantId,
+          qty: quantity,
+        },
+      ],
+    });
+
+    // Clear pending product after order
+    clearPendingProduct(sessionId);
+
+    return result;
   },
 });

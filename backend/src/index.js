@@ -3,8 +3,10 @@ import "./loadEnv.js";
 import { getAgent } from "./agent/agent.js";
 import { sessionContext } from "./memory/sessionContext.js";
 import { corsMiddleware } from "./middleware/cors.js";
+import { getMessageHistory, addMessage } from "./memory/messageHistory.js";
+
 const app = express();
-app.use(corsMiddleware)
+app.use(corsMiddleware);
 app.use(express.json());
 
 // Enable CORS for Next.js frontend
@@ -49,10 +51,29 @@ app.post("/chat", async (req, res) => {
     return res.status(400).json({ error: "sessionId required" });
   }
 
-  sessionContext.run({ sessionId }, async () => {
+  await sessionContext.run({ sessionId }, async () => {
     try {
+      // 🧠 Get conversation history for this session
+      const history = getMessageHistory(sessionId);
+      
+      // 🪟 Keep only last 10 messages (5 user + 5 assistant pairs)
+      const WINDOW_SIZE = 2;
+      const recentHistory = history.slice(-WINDOW_SIZE);
+      
+      // 📝 Build messages array with recent conversation context
+      const messages = recentHistory.map(h => ({
+        role: h.role,
+        content: h.content
+      }));
+      
+      // Add current user message
+      messages.push({ role: "user", content: message });
+      
+      console.log(`💬 Session ${sessionId} - Processing with ${recentHistory.length}/${history.length} messages (window: ${WINDOW_SIZE})`);
+
+      // 🤖 Invoke agent with recent conversation history
       const result = await agent.invoke({
-        messages: [{ role: "user", content: message }],
+        messages: messages,
       });
 
       const lastMessage = result.messages?.[result.messages.length - 1];
@@ -61,10 +82,14 @@ app.post("/chat", async (req, res) => {
       // Parse the response
       const parsedResponse = parseAgentResponse(content);
 
+      // 💾 Save user message and assistant response to history
+      addMessage(sessionId, "user", message);
+      addMessage(sessionId, "assistant", content);
+
       // Send structured JSON response
       res.json(parsedResponse);
     } catch (err) {
-      console.error(err);
+      console.error("❌ Error in /chat:", err);
       res.status(500).json({ 
         error: err.message,
         message: "Sorry, I encountered an error. Please try again."
@@ -73,6 +98,20 @@ app.post("/chat", async (req, res) => {
   });
 });
 
+// Optional: Endpoint to clear conversation history for a session
+app.post("/clear-history", async (req, res) => {
+  const { sessionId } = req.body;
+  
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId required" });
+  }
+  
+  const { clearHistory } = await import("./memory/messageHistory.js");
+  clearHistory(sessionId);
+  
+  res.json({ message: "History cleared", sessionId });
+});
+
 app.listen(4000, () => {
-  console.log("Server running on port 3000");
+  console.log("🚀 Server running on port 4000");
 });
