@@ -1,11 +1,12 @@
 // src/agent/tools.js
-// FINAL – deterministic product memory using server-side session context
+// FIXED for Gemini compatibility
 
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import { GraphQLClient } from "graphql-request";
 import { getProductContext, setLastProductList } from "../memory/productContext.js";
 import { getCurrentSessionId } from "../memory/sessionContext.js";
+import { getUserInterest } from "../memory/interestContext.js";
 
 import {
   setPendingProduct,
@@ -27,47 +28,57 @@ const client = new GraphQLClient(
   }
 );
 
-
-
 export const listProductsTool = new DynamicStructuredTool({
   name: "list_products",
   description:
-    "List or search Shopify products. Use this when the user wants to browse products.",
+    "List or search Shopify products. Use this when the user wants to browse products. Can filter by query keywords, price range, or use context from user interests.",
 
   schema: z.object({
     query: z.string().optional(),
     minPrice: z.number().optional(),
     maxPrice: z.number().optional(),
+    useInterestContext: z.boolean().optional().default(false),
   }),
 
-  func: async ({ query, minPrice, maxPrice }) => {
+  func: async ({ query, minPrice, maxPrice, useInterestContext }) => {
     console.log("LIST_PRODUCTS using server-side session context");
+
+    const sessionId = getCurrentSessionId();
+    let searchQuery = query;
+
+    if (useInterestContext) {
+      const interest = getUserInterest(sessionId);
+      if (interest?.mapping?.keywords) {
+        searchQuery = interest.mapping.keywords.join(" ");
+        console.log(`🎯 Using interest-based search: "${searchQuery}"`);
+      }
+    }
 
     const gql = `
       query {
-  products(first: 10) {
-  edges {
-    node {
-      title
-      variants(first: 1) {
-        edges {
-          node {
-            id
-            price
+        products(first: 10, query: "${searchQuery || ""}") {
+          edges {
+            node {
+              title
+              description
+              variants(first: 1) {
+                edges {
+                  node {
+                    id
+                    price
+                  }
+                }
+              }
+              images(first: 1) {
+                edges {
+                  node {
+                    src
+                  }
+                }
+              }
+            }
           }
         }
-      }
-      images(first: 1) {
-        edges {
-          node {
-            src
-          }
-        }
-      }
-    }
-  }
-}
-
       }
     `;
 
@@ -78,6 +89,7 @@ export const listProductsTool = new DynamicStructuredTool({
         index: index + 1,
         variantId: node.variants.edges[0]?.node.id,
         title: node.title,
+        description: node.description?.substring(0, 100),
         price: Number(node.variants.edges[0]?.node.price),
         image: node.images.edges[0]?.node.src,
       }))
@@ -87,13 +99,45 @@ export const listProductsTool = new DynamicStructuredTool({
         return true;
       });
 
-    // 🔐 Save products in deterministic server-side memory
+    if (useInterestContext) {
+      const interest = getUserInterest(sessionId);
+      if (interest?.mapping) {
+        products = scoreProductsByInterest(products, interest.mapping);
+      }
+    }
+
     setLastProductList(products);
 
-    return JSON.stringify(products);
+    return JSON.stringify({
+      products,
+      count: products.length,
+      searchQuery: searchQuery || "all products",
+    });
   },
 });
 
+function scoreProductsByInterest(products, mapping) {
+  const keywords = mapping.keywords?.map(k => k.toLowerCase()) || [];
+  const categories = mapping.categories?.map(c => c.toLowerCase()) || [];
+
+  return products.map(product => {
+    let score = 0;
+    const titleLower = product.title.toLowerCase();
+    const descLower = (product.description || "").toLowerCase();
+
+    keywords.forEach(keyword => {
+      if (titleLower.includes(keyword)) score += 10;
+      if (descLower.includes(keyword)) score += 5;
+    });
+
+    categories.forEach(category => {
+      if (titleLower.includes(category)) score += 8;
+      if (descLower.includes(category)) score += 3;
+    });
+
+    return { ...product, relevanceScore: score };
+  }).sort((a, b) => b.relevanceScore - a.relevanceScore);
+}
 
 export const getProductByIndexTool = new DynamicStructuredTool({
   name: "get_product_by_index",
@@ -108,20 +152,15 @@ export const getProductByIndexTool = new DynamicStructuredTool({
     console.log("GET_PRODUCT using server-side session context");
 
     const context = getProductContext();
-
-    // 🔒 Normalize index (LLM may send 0)
     const safeIndex = Math.max(1, index);
-
     const product = context.lastProductList[safeIndex - 1];
 
     if (!product) {
       return JSON.stringify({
-        error:
-          "Product not found. Please ask to list products again.",
+        error: "Product not found. Please ask to list products again.",
       });
     }
 
-    // 🧠 Save pending product for continuation ("order this")
     const sessionId = getCurrentSessionId();
     setPendingProduct(sessionId, product);
 
@@ -132,7 +171,6 @@ export const getProductByIndexTool = new DynamicStructuredTool({
   },
 });
 
-
 export const createDraftOrderTool = new DynamicStructuredTool({
   name: "create_draft_order",
   description:
@@ -142,7 +180,7 @@ export const createDraftOrderTool = new DynamicStructuredTool({
     items: z.array(
       z.object({
         id: z.string().describe("Shopify variant ID"),
-        qty: z.number().int().positive(),
+        qty: z.number().int().min(1), // FIXED: Use .min(1) instead of .positive()
       })
     ),
   }),
@@ -174,15 +212,13 @@ export const createDraftOrderTool = new DynamicStructuredTool({
   },
 });
 
-
-
 export const confirmOrderTool = new DynamicStructuredTool({
   name: "confirm_order",
   description:
     "Confirm and place an order for the previously selected product.",
 
   schema: z.object({
-    quantity: z.number().int().positive().default(1),
+    quantity: z.number().int().min(1).default(1), // FIXED: Use .min(1) instead of .positive()
   }),
 
   func: async ({ quantity }) => {
@@ -193,14 +229,12 @@ export const confirmOrderTool = new DynamicStructuredTool({
 
     if (!state.pendingProduct) {
       return JSON.stringify({
-        error:
-          "No product selected yet. Please choose a product first.",
+        error: "No product selected yet. Please choose a product first.",
       });
     }
 
     const product = state.pendingProduct;
 
-    // Create draft order
     const result = await createDraftOrderTool.func({
       items: [
         {
@@ -210,7 +244,6 @@ export const confirmOrderTool = new DynamicStructuredTool({
       ],
     });
 
-    // Clear pending product after order
     clearPendingProduct(sessionId);
 
     return result;
