@@ -57,7 +57,7 @@ app.post("/chat", async (req, res) => {
       const history = getMessageHistory(sessionId);
       
       // 🪟 Keep only last 10 messages (5 user + 5 assistant pairs)
-      const WINDOW_SIZE = 2;
+      const WINDOW_SIZE = 4;
       const recentHistory = history.slice(-WINDOW_SIZE);
       
       // 📝 Build messages array with recent conversation context
