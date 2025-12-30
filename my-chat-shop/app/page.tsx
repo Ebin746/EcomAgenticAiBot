@@ -1,22 +1,8 @@
-'use client';
-
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  KeyboardEvent,
-  ChangeEvent,
-} from 'react';
-import { Send, ShoppingBag, Loader2, ExternalLink } from 'lucide-react';
+"use client"
+import React, { useState, useRef, useEffect } from 'react';
+import { Send, Loader2 } from 'lucide-react';
 
 /* ================= TYPES ================= */
-
-type MessageType =
-  | 'user'
-  | 'bot_text'
-  | 'bot_products'
-  | 'bot_product'
-  | 'bot_order';
 
 interface Product {
   index: number;
@@ -24,6 +10,7 @@ interface Product {
   price: number;
   image?: string;
   variantId?: string;
+  description?: string;
 }
 
 interface Order {
@@ -32,11 +19,8 @@ interface Order {
 }
 
 interface Message {
-  type: MessageType;
-  content?: string;
-  products?: Product[];
-  product?: Product;
-  order?: Order;
+  type: 'user' | 'bot';
+  content: string;
   timestamp: Date;
 }
 
@@ -52,9 +36,8 @@ interface ChatResponse {
 export default function ChatCommerce() {
   const [messages, setMessages] = useState<Message[]>([
     {
-      type: 'bot_text',
-      content:
-        "👋 Hi! I'm your shopping assistant. Ask me about products, prices, or orders.",
+      type: 'bot',
+      content: "Hi! I'm your shopping assistant. Ask me about products, prices, or orders.",
       timestamp: new Date(),
     },
   ]);
@@ -70,6 +53,43 @@ export default function ChatCommerce() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Clean markdown formatting from text
+  const cleanText = (text: string): string => {
+    return text
+      .replace(/\*\*([^*]+)\*\*/g, '$1')  // Remove bold
+      .replace(/\*([^*]+)\*/g, '$1')      // Remove italics
+      .replace(/!\[.*?\]\(.*?\)/g, '')    // Remove image links
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')  // Convert [text](url) to text
+      .replace(/#{1,6}\s+/g, '')          // Remove headers
+      .trim();
+  };
+
+  const formatProductList = (products: Product[]): string => {
+    return products.map((p) => {
+      let text = `${p.index}. ${p.title} - ₹${p.price.toFixed(2)}`;
+      if (p.description) {
+        text += `\n   ${p.description}`;
+      }
+      return text;
+    }).join('\n\n');
+  };
+
+  const formatSingleProduct = (product: Product): string => {
+    let text = `${product.title}\nPrice: ₹${product.price.toFixed(2)}`;
+    if (product.description) {
+      text += `\n\n${product.description}`;
+    }
+    return text;
+  };
+
+  const formatOrder = (order: Order): string => {
+    let text = '✓ Order created successfully!';
+    if (order.invoiceUrl) {
+      text += `\n\nComplete your purchase:\n${order.invoiceUrl}`;
+    }
+    return text;
+  };
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
@@ -98,30 +118,33 @@ export default function ChatCommerce() {
 
       const data: ChatResponse = await res.json();
 
+      let botContent = data.message ? cleanText(data.message) : '';
+
+      // Convert products/product/order to text
+      if (data.products && data.products.length > 0) {
+        const productText = formatProductList(data.products);
+        botContent = botContent ? `${botContent}\n\n${productText}` : productText;
+      } else if (data.product) {
+        const productText = formatSingleProduct(data.product);
+        botContent = botContent ? `${botContent}\n\n${productText}` : productText;
+      } else if (data.order) {
+        const orderText = formatOrder(data.order);
+        botContent = botContent ? `${botContent}\n\n${orderText}` : orderText;
+      }
+
       const botMessage: Message = {
-        type: 'bot_text',
-        content: data.message ?? 'Here you go 👇',
+        type: 'bot',
+        content: botContent || 'Here you go',
         timestamp: new Date(),
       };
-
-      if (data.products) {
-        botMessage.type = 'bot_products';
-        botMessage.products = data.products;
-      } else if (data.product) {
-        botMessage.type = 'bot_product';
-        botMessage.product = data.product;
-      } else if (data.order) {
-        botMessage.type = 'bot_order';
-        botMessage.order = data.order;
-      }
 
       setMessages((prev) => [...prev, botMessage]);
     } catch {
       setMessages((prev) => [
         ...prev,
         {
-          type: 'bot_text',
-          content: '❌ Something went wrong. Try again.',
+          type: 'bot',
+          content: 'Something went wrong. Try again.',
           timestamp: new Date(),
         },
       ]);
@@ -130,7 +153,7 @@ export default function ChatCommerce() {
     }
   };
 
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
@@ -138,24 +161,19 @@ export default function ChatCommerce() {
   };
 
   return (
-    <div className="flex flex-col h-screen  from-slate-950 via-slate-900 to-slate-950 text-slate-100">
+    <div className="flex flex-col h-screen bg-slate-950 text-slate-100">
       {/* HEADER */}
       <header className="border-b border-slate-800 bg-slate-900">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
-          <div className="bg-indigo-600 p-2 rounded-xl">
-            <ShoppingBag className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="font-bold">ShopBot</h1>
-            <p className="text-xs text-slate-400">
-              {isLoading ? 'Typing…' : 'Online'}
-            </p>
-          </div>
+        <div className="max-w-3xl mx-auto px-4 py-3">
+          <h1 className="font-semibold text-lg">ShopBot</h1>
+          <p className="text-xs text-slate-400">
+            {isLoading ? 'Typing…' : 'Online'}
+          </p>
         </div>
       </header>
 
       {/* CHAT */}
-      <main className="flex-1 overflow-y-auto px-4 py-6 max-w-4xl mx-auto w-full space-y-4">
+      <main className="flex-1 overflow-y-auto px-4 py-6 max-w-3xl mx-auto w-full space-y-4">
         {messages.map((m, i) => (
           <MessageBubble key={i} message={m} />
         ))}
@@ -172,22 +190,20 @@ export default function ChatCommerce() {
 
       {/* INPUT */}
       <footer className="border-t border-slate-800 bg-slate-900">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex gap-2">
+        <div className="max-w-3xl mx-auto px-4 py-4 flex gap-2">
           <textarea
             value={input}
-            onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
-              setInput(e.target.value)
-            }
+            onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Ask about shoes, shirts, prices…"
+            placeholder="Ask about products, prices, orders…"
             rows={1}
             disabled={isLoading}
-            className="flex-1 resize-none rounded-xl bg-slate-800 border border-slate-700 p-3 text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="flex-1 resize-none rounded-lg bg-slate-800 border border-slate-700 p-3 text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
           <button
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}
-            className=" from-indigo-600 to-purple-600 p-3 rounded-xl disabled:opacity-50"
+            className="bg-indigo-600 hover:bg-indigo-700 p-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Send className="w-5 h-5 text-white" />
           </button>
@@ -197,90 +213,24 @@ export default function ChatCommerce() {
   );
 }
 
-/* ================= SUB COMPONENTS ================= */
+/* ================= MESSAGE BUBBLE ================= */
 
 function MessageBubble({ message }: { message: Message }) {
   if (message.type === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%]  from-indigo-600 to-purple-600 text-white p-3 rounded-2xl rounded-tr-sm">
-          {message.content}
+        <div className="max-w-[80%] bg-indigo-600 text-white px-4 py-2 rounded-2xl rounded-tr-md">
+          <p className="text-sm leading-relaxed">{message.content}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-3">
-      {message.content && (
-        <div className="max-w-[85%] bg-slate-800 border border-slate-700 p-3 rounded-2xl rounded-tl-sm">
-          {message.content}
-        </div>
-      )}
-
-      {message.products && <ProductCarousel products={message.products} />}
-      {message.product && (
-        <ProductCard product={message.product} expanded />
-      )}
-      {message.order && <OrderCard order={message.order} />}
-    </div>
-  );
-}
-
-function ProductCarousel({ products }: { products: Product[] }) {
-  return (
-    <div className="flex gap-3 overflow-x-auto pb-2">
-      {products.map((p) => (
-        <ProductCard key={p.index} product={p} />
-      ))}
-    </div>
-  );
-}
-
-function ProductCard({
-  product,
-  expanded = false,
-}: {
-  product: Product;
-  expanded?: boolean;
-}) {
-  return (
-    <div
-      className={`bg-slate-800 border border-slate-700 rounded-xl shadow-lg ${
-        expanded ? 'w-full' : 'w-64 '
-      }`}
-    >
-      <div className="h-40 bg-slate-900 flex items-center justify-center">
-        <ShoppingBag className="w-12 h-12 text-slate-600" />
+    <div className="flex justify-start">
+      <div className="max-w-[85%] bg-slate-800 border border-slate-700 text-slate-100 px-4 py-3 rounded-2xl rounded-tl-md">
+        <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{message.content}</pre>
       </div>
-      <div className="p-4 space-y-2">
-        <h3 className="font-semibold text-slate-100 line-clamp-2">
-          {product.title}
-        </h3>
-        <p className="text-indigo-400 font-bold">
-          ₹{product.price.toFixed(2)}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function OrderCard({ order }: { order: Order }) {
-  return (
-    <div className="bg-emerald-900/40 border border-emerald-700 rounded-xl p-4">
-      <p className="font-semibold text-emerald-300 mb-2">
-        ✅ Order Created
-      </p>
-      {order.invoiceUrl && (
-        <a
-          href={order.invoiceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 text-emerald-200 underline"
-        >
-          Complete Purchase <ExternalLink className="w-4 h-4" />
-        </a>
-      )}
     </div>
   );
 }
